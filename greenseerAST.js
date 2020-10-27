@@ -7,42 +7,7 @@ const fs = require('fs');
 let encode_file = "./dx.js",decode_file = "./decode_dx.js";
 
 let jscode = fs.readFileSync(encode_file, {encoding: "utf-8"});
-let ast    = parser.parse(jscode);
-
-//取出 (0,xxx) 这种格式 和 逗号表达式
-const resolveSequence = {
-	SequenceExpression: {
-		exit(path){
-			let expressions = path.get('expressions');
-			let last_expression = expressions.pop();
-
-			let statement = path.getStatementParent();
-
-			if(statement){
-				for(let expression of expressions)
-				{
-					if(expression.isLiteral() ||expression.isIdentifier())
-					{
-						expression.remove();
-						continue;
-					}
-					statement.insertBefore(types.ExpressionStatement(expression=expression.node));
-				}
-				console.log(path.toString());
-				path.replaceInline(last_expression);
-				console.log("还原->");
-				console.log(path.toString())
-      }
-    }
-  },
-};
-
-
-const removeUnicode = {
-	StringLiteral:{
-        enter: function(path) { delete path.node.extra}
-    },
-};
+let ast  = parser.parse(jscode);
 
 const restoreArray = {
 	"Program"(path){
@@ -109,23 +74,6 @@ const evaluateValue={
     }
 }
 
-const evaluateValue2={
-    "Identifier":{
-        enter:function(path){
-        	const{confident,value}=path.evaluate();
-        	if (confident){
-        		if (value !== undefined){
-        			console.log(path.toString(),"还原后=>", value);
-        			path.replaceInline(types.valueToNode(value));
-				}
-			}
-            //console.log(value)
-            //path.skip()
-        }
-
-    }
-}
-
 //还原可以通过方法直接计算出值的混淆
 const restoreFunction = {
 	"FunctionDeclaration"(path){
@@ -161,67 +109,6 @@ const restoreFunction = {
 	}
 };
 
-//还原!funtion
-const restoreFunction2 = {
-	"CallExpression"(path){
-		let callee = path.get("callee");
-		let arguments = path.get("arguments");
-		if(!callee.isFunctionExpression() || arguments.length === 0)
-		{
-			return;
-		}
-
-		let params = callee.get('params');
-		let scope = callee.scope;
-		for (let i=0; i<arguments.length;i++){
-			let arg = params[i];
-			if (!arg) continue;
-			//console.log(arg);
-			let {name} = arg.node;
-			const binding = scope.getBinding(name);
-			if (!binding || binding.constantViolations.length > 0)
-			{
-				continue;
-			}
-			for (refer_path of binding.referencePaths){
-				//console.log(path.toString())
-				refer_path.replaceInline(arguments[i]);
-			}
-			arg.remove();
-			arguments[i].remove();
-		}
-	}
-};
-
-
-//删除没被引用的var
-const removeUnusedvar= {
-	"VariableDeclarator"(path){
-		const {id} = path.node;
-		const binding = path.scope.getBinding(id.name);
-		if (!binding || binding.constantViolations.length > 0)
-		{
-			return;
-		}
-		if (binding.referencePaths.length === 0){
-			path.remove();
-		}
-	}
-};
-
-//删除没被引用的function
-const removeUnusedFunc= {
-	"FunctionDeclaration"(path){
-		const {id} = path.node;
-		const binding = path.scope.parent.getBinding(id.name);
-		if (binding)
-		{
-			return;
-		}
-		console.log(path.toString())
-		path.remove();
-	}
-};
 
 const mergeString = {
 
@@ -234,22 +121,6 @@ const mergeString = {
 };
 
 
-const restoreReverse = {
-	  "CallExpression":
-	  {
-	  	exit(path){
-	  		console.log(path.toString());
-	  		if (!types.isLiteral(path)) return;
-	  		let callee = path.get('callee');
-	  		if (!callee.isMemberExpression()) return;
-	  		let object = callee.get('object');
-	  		if (!types.isLiteral(object)) return;
-	  		let value = eval(path.toString());
-	  		console.log(path.toString(),"还原后=>", value);
-	  		path.replaceInline(types.valueToNode(value));
-	  	}
-    },
-};
 
 const removeSequenceExpression = {
 	ExpressionStatement: {
@@ -298,12 +169,7 @@ traverse(ast, mergeString);
 traverse(ast, restoreVar);
 traverse(ast, evalPath);
 traverse(ast, restoreFunction);
-
-//traverse(ast, removeSequenceExpression);
-//traverse(ast, resolveSequence);
-//traverse(ast, removeUnusedvar);
-//traverse(ast, removeUnusedFunc);
+traverse(ast, removeSequenceExpression);
 
 let {code} = generator(ast,opts = {jsescOption:{"minimal":true}});
-//console.log(code)
 fs.writeFile(decode_file, code, (err) => {});
